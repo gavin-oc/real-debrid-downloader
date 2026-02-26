@@ -6,53 +6,111 @@ import androidx.lifecycle.viewModelScope
 import com.realdebrid.downloader.data.local.DownloadEntity
 import com.realdebrid.downloader.data.local.DownloadStatus
 import com.realdebrid.downloader.data.repository.DownloadRepository
-import com.realdebrid.downloader.download.DownloadManager
-import com.realdebrid.downloader.download.DownloadProgress
-import com.realdebrid.downloader.download.DownloadWorker
+import com.realdebrid.downloader.service.DownloadService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: DownloadRepository,
-    private val downloadManager: DownloadManager
+    private val repository: DownloadRepository
 ) : ViewModel() {
 
-    val downloads: Flow<List<DownloadEntity>> = repository.getLocalDownloads()
+    val downloads: StateFlow<List<DownloadEntity>> = repository.getAllDownloadsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _progressMap = MutableStateFlow<Map<String, DownloadProgress>>(emptyMap())
-    val progressMap: StateFlow<Map<String, DownloadProgress>> = _progressMap.asStateFlow()
+    private val _uiState = MutableStateFlow(DownloadsUiState())
+    val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
 
     init {
+        observeDownloads()
+    }
+
+    private fun observeDownloads() {
         viewModelScope.launch {
-            downloadManager.downloadProgress.collect { progress ->
-                _progressMap.value = _progressMap.value + (progress.downloadId to progress)
+            repository.getAllDownloadsFlow().collect { downloads ->
+                val activeCount = downloads.count { it.status == DownloadStatus.DOWNLOADING }
+                val completedCount = downloads.count { it.status == DownloadStatus.COMPLETED }
+                val failedCount = downloads.count { it.status == DownloadStatus.FAILED }
+
+                _uiState.update {
+                    it.copy(
+                        activeCount = activeCount,
+                        completedCount = completedCount,
+                        failedCount = failedCount,
+                        isEmpty = downloads.isEmpty()
+                    )
+                }
             }
         }
     }
 
     fun startDownload(download: DownloadEntity) {
-        DownloadWorker.enqueue(context, download.id)
+        DownloadService.startDownload(context, download.id)
     }
 
     fun pauseDownload(download: DownloadEntity) {
-        DownloadWorker.pause(context, download.id)
-        viewModelScope.launch {
-            repository.updateProgress(download.id, DownloadStatus.PAUSED, download.progress)
-        }
+        DownloadService.pauseDownload(context, download.id)
+    }
+
+    fun resumeDownload(download: DownloadEntity) {
+        DownloadService.resumeDownload(context, download.id)
+    }
+
+    fun cancelDownload(download: DownloadEntity) {
+        DownloadService.cancelDownload(context, download.id)
     }
 
     fun deleteDownload(download: DownloadEntity) {
-        DownloadWorker.cancel(context, download.id)
         viewModelScope.launch {
-            repository.deleteLocalDownload(download.id)
+            // Cancel if active
+            if (download.status == DownloadStatus.DOWNLOADING) {
+                DownloadService.cancelDownload(context, download.id)
+            }
+            // Delete from database
+            repository.deleteDownloadById(download.id)
+        }
+    }
+
+    fun retryDownload(download: DownloadEntity) {
+        viewModelScope.launch {
+            // Reset status and retry
+            repository.updateStatus(download.id, DownloadStatus.QUEUED)
+            DownloadService.startDownload(context, download.id)
+        }
+    }
+
+    fun clearCompleted() {
+        viewModelScope.launch {
+            val completed = repository.getDownloadsByStatus(DownloadStatus.COMPLETED)
+            completed.forEach { repository.deleteDownloadById(it.id) }
+        }
+    }
+
+    fun clearFailed() {
+        viewModelScope.launch {
+            val failed = repository.getDownloadsByStatus(DownloadStatus.FAILED)
+            failed.forEach { repository.deleteDownloadById(it.id) }
+        }
+    }
+
+    fun retryAllFailed() {
+        viewModelScope.launch {
+            val failed = repository.getDownloadsByStatus(DownloadStatus.FAILED)
+            failed.forEach { download ->
+                repository.updateStatus(download.id, DownloadStatus.QUEUED)
+                DownloadService.startDownload(context, download.id)
+            }
         }
     }
 }
+
+data class DownloadsUiState(
+    val activeCount: Int = 0,
+    val completedCount: Int = 0,
+    val failedCount: Int = 0,
+    val isEmpty: Boolean = true
+)

@@ -4,8 +4,14 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 
-@Database(entities = [DownloadEntity::class], version = 1)
+@Database(
+    entities = [DownloadEntity::class],
+    version = 3,
+    exportSchema = false
+)
+@TypeConverters(Converters::class)
 abstract class DownloadDatabase : RoomDatabase() {
 
     abstract fun downloadDao(): DownloadDao
@@ -20,7 +26,9 @@ abstract class DownloadDatabase : RoomDatabase() {
                     context.applicationContext,
                     DownloadDatabase::class.java,
                     "download_database"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

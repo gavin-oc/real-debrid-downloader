@@ -12,6 +12,7 @@ import com.realdebrid.downloader.data.remote.AuthInterceptor
 import com.realdebrid.downloader.data.remote.RealDebridApi
 import com.realdebrid.downloader.data.repository.DownloadRepository
 import com.realdebrid.downloader.data.repository.SettingsRepository
+import com.realdebrid.downloader.download.DownloadEngine
 import com.realdebrid.downloader.download.FileDownloader
 import dagger.Module
 import dagger.Provides
@@ -124,5 +125,11 @@ object AppModule {
     @Singleton
     fun provideFileDownloaderFactory(@Named("downloader") client: OkHttpClient): FileDownloader.Factory {
         return FileDownloader.Factory(client)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDownloadEngineFactory(@Named("downloader") client: OkHttpClient): DownloadEngine.Factory {
+        return DownloadEngine.Factory(client)
     }
 }
