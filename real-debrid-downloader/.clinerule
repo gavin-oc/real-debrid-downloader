@@ -1,0 +1,53 @@
+# Real-Debrid Downloader Build Rules
+
+## Context
+Android app for downloading from Real-Debrid cache.
+Custom download engine replaces Android's DownloadManager which provides no visibility and stalls silently.
+
+## Tech Stack
+Kotlin, Jetpack Compose, MVVM, Hilt, Room, OkHttp, Retrofit
+Min SDK: 26
+
+## Code Style
+- Minimal comments
+- Compose over XML
+- Hilt for DI
+- Flow for reactive updates
+- Sealed classes for results (`DownloadResult.Success/Error/Cancelled`)
+- AtomicBoolean/AtomicLong for thread-safe state in engine
+
+## Architecture
+```
+UI (Compose) → ViewModel → Repository → DAO / RealDebridApi
+                                ↓
+                        DownloadService → DownloadEngine → Storage
+```
+
+## CDN Rules (Real-Debrid Lity 2.0) — CRITICAL
+- **NEVER** use open-ended `Range: bytes=N-` — CDN holds connection without FIN, blocks until timeout
+- **ALWAYS** use bounded ranges: `Range: bytes=start-end`
+- Probe file size with `bytes=0-0`, read `Content-Range` header only, never consume body
+- CDN nodes are unreliable — some accept TCP, return 206, send 0 bytes. Fail fast (5 retries, 1s delay)
+- CDN URLs are time-limited and pre-authenticated (no Bearer token needed)
+
+## Download Engine Design
+- Parallel 4MB chunks, 8 concurrent via semaphore
+- `chunkFailed` AtomicBoolean aborts sibling chunks on first permanent failure
+- Every exit path (cancel, exception, incomplete) must undo `downloadedBytes` counter
+- Pre-allocate file with `setLength(totalBytes)` before chunk dispatch (wrapped in try-catch for SAF paths)
+- Two OkHttp clients: API (30s timeout, auth interceptor) and Downloader (5min timeout, no auth)
+
+## SAF Path Handling
+- Settings stores download path as content:// URI from OpenDocumentTree
+- `RandomAccessFile` cannot open content URIs — must convert to filesystem path
+- `resolveDirectory()` in DownloadService maps `primary:Download/Debrid` → `/storage/emulated/0/Download/Debrid`
+- `outputFile.parentFile?.mkdirs()` silently fails on content URIs — no error, just missing directory
+
+## Common Pitfalls
+- `SupervisorJob` silently swallows child coroutine exceptions — always wrap job body in try-catch
+- `cancelDownload` and `handleResult` race on DB status writes — must gate on current status
+- HTTP logging (`Level.BODY`, `Level.HEADERS`) must be gated on `BuildConfig.DEBUG` in release builds
+- `FileDownloader.kt` is dead code — do not use, `DownloadEngine` is the active implementation
+
+## Testing
+Test each component incrementally before moving forward.
