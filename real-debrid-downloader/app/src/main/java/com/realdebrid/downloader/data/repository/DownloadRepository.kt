@@ -108,7 +108,8 @@ class DownloadRepository @Inject constructor(
             downloadUrl = unrestrictResponse.download,
             mimeType = unrestrictResponse.mimeType ?: "",
             fileSize = unrestrictResponse.filesize,
-            status = DownloadStatus.QUEUED
+            status = DownloadStatus.QUEUED,
+            rdDownloadId = unrestrictResponse.id
         )
         downloadDao.insert(entity)
         return entity

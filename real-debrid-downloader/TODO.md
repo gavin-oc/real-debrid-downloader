@@ -24,25 +24,10 @@ Solution: Full custom implementation with real-time tracking.
 - [x] Add inter-chunk cancellation — `chunkFailed` AtomicBoolean aborts sibling chunks when one permanently fails
 - [x] Pre-allocate file before parallel downloads — `setLength(totalBytes)`, wrapped in try-catch for SAF paths
 - [x] Fix SAF content URI crash in `getOutputFile` — added `resolveDirectory()` to convert `content://` URIs to filesystem paths
-
-### Critical
-
-- [ ] **Downloads stuck in DOWNLOADING status — never marked COMPLETED/FAILED** (DownloadService.kt:103-121)
-  - `serviceScope.launch` with `SupervisorJob` silently swallows uncaught exceptions
-  - `handleResult` never called → DB entry stuck in DOWNLOADING, notification stuck, service never stops
-  - Also affects cancel: race between `cancelDownload` and `handleResult` can overwrite CANCELLED with COMPLETED/FAILED (DownloadService.kt:202-217)
-  - Fix: wrap entire job body in try-catch, call `handleResult` with error on any throwable; gate `handleResult` DB writes on current status to prevent race
-
-- [ ] **HTTP logging exposes auth token in release builds** (AppModule.kt:67-69, 122-125)
-  - API client uses `Level.BODY` — logs Bearer token and full response bodies
-  - Downloader client uses `Level.HEADERS` — logs all headers
-  - Neither is gated on `BuildConfig.DEBUG`
-  - Fix: wrap both in `if (BuildConfig.DEBUG)` guard
-
-- [ ] **Expired CDN URL = permanent failure, no auto-recovery** (DownloadEntity.kt, DownloadRepository.kt)
-  - RD unrestrict URLs are time-limited; retries hit the same expired URL
-  - `DownloadEntity` has no `torrentId` or `rdDownloadId` field
-  - Fix: add `torrentId: String? = null` to entity (Room migration), re-unrestrict on HTTP 403/410 in retry path
+- [x] **Downloads stuck in DOWNLOADING** — `engine.download()` wrapped in try-catch inside job; `CancellationException` silently absorbed; `handleResult` guards against CANCELLED→COMPLETED/FAILED race by checking DB status before writing (DownloadService.kt)
+- [x] **HTTP logging exposes auth token in release** — both `HttpLoggingInterceptor` usages wrapped in `if (BuildConfig.DEBUG)` (AppModule.kt)
+- [x] **Single-stream open-ended Range header** — `Range: bytes=0-` no longer sent on fresh starts; header only added when `existingBytes > 0` (DownloadEngine.kt:327)
+- [x] **Expired CDN URL = permanent failure** — added `rdDownloadId: String?` to `DownloadEntity`, DB migrated 3→4, stored on queue; `handleResult` re-unrestricts on HTTP 403/410 and retries once (DownloadService.kt, AppDatabase.kt, DownloadRepository.kt)
 
 ### High
 
@@ -60,10 +45,6 @@ Solution: Full custom implementation with real-time tracking.
   - Clearing a download should: cancel active engine, remove from `activeDownloads`, delete partial file, remove DB entry, dismiss notification
   - Pause should correctly persist state so resume works (currently pause only works while engine is in memory; service restart = full re-download)
   - Bulk clear (clear all completed, clear all failed, etc.)
-
-- [ ] **Single-stream fallback uses open-ended `Range: bytes=N-`** (DownloadEngine.kt:322-327)
-  - Same CDN stall pattern the parallel path was designed to avoid
-  - Fix: either use bounded range (probe size first) or remove the Range header entirely for fresh starts
 
 ### Medium
 
@@ -92,6 +73,31 @@ Solution: Full custom implementation with real-time tracking.
 
 - [ ] **`instantAvailability` only checks one hash per call** (RealDebridApi.kt:75-76)
   - RD API supports comma-separated hashes; current interface requires N calls for N hashes
+
+---
+
+## Lessons Learned
+
+### SupervisorJob silently eats child coroutine exceptions
+`serviceScope.launch` with `SupervisorJob` will not propagate `CancellationException` or any other throwable thrown inside the child. Any code after the throwing call (e.g. `handleResult`) is simply never reached. **Always wrap the body of a `SupervisorJob` child in try-catch** and explicitly handle both `CancellationException` and general exceptions.
+
+### Coroutine cancellation requires special handling — never re-throw CancellationException in service code
+`job.cancel()` causes `engine.download()` to throw `CancellationException`. If you catch it and re-throw, the parent `SupervisorJob` sees a cancelled child and may behave unexpectedly. Absorb it silently; the `cancelDownload()` path already handles all cleanup.
+
+### Concurrent cancel + result = race condition in DB status
+`cancelDownload()` sets status to CANCELLED in a separate coroutine. If `engine.download()` returns `Success` just before the cancel takes effect, `handleResult` overwrites CANCELLED with COMPLETED. **Gate all terminal DB writes on the current DB status** — read it inside `handleResult` before writing.
+
+### Open-ended Range header (`bytes=0-`) triggers CDN stall
+Real-Debrid's CDN holds open-ended range connections without sending a FIN. The read blocks until the timeout. **Never send `Range: bytes=0-` on a fresh download.** Either probe the file size first (use `bytes=0-0`) or omit the header entirely.
+
+### HttpLoggingInterceptor at `Level.BODY` logs Bearer tokens in plaintext
+Any OkHttp logging interceptor above `Level.NONE` will log Authorization headers. **Always gate on `BuildConfig.DEBUG`** — failing to do so leaks API credentials to logcat in production builds.
+
+### RD unrestrict URLs are time-limited — store the original link, not just the CDN URL
+CDN URLs expire (HTTP 403/410). Retrying with the same URL loops forever. **Store `rdDownloadId` (from `UnrestrictResponse.id`) and `originalUrl` at queue time** so the service can call `unrestrictLink` again on expiry to get a fresh CDN URL.
+
+### Room schema changes require explicit migrations
+Adding a nullable column to an `@Entity` without a corresponding `Migration` causes a crash at startup on existing installs. **Bump `@Database(version = N)` and add a `Migration(N-1, N)` with `ALTER TABLE ... ADD COLUMN`** every time the entity schema changes. Keep `fallbackToDestructiveMigration()` only during development.
 
 ---
 

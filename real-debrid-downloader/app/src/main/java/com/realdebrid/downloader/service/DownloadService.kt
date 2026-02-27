@@ -16,6 +16,7 @@ import com.realdebrid.downloader.RealDebridApp
 import com.realdebrid.downloader.data.local.DownloadDao
 import com.realdebrid.downloader.data.local.DownloadEntity
 import com.realdebrid.downloader.data.local.DownloadStatus
+import com.realdebrid.downloader.data.remote.RealDebridApi
 import com.realdebrid.downloader.data.repository.SettingsRepository
 import com.realdebrid.downloader.download.DownloadEngine
 import com.realdebrid.downloader.download.DownloadResult
@@ -36,6 +37,7 @@ class DownloadService : Service() {
     @Inject lateinit var downloadDao: DownloadDao
     @Inject lateinit var engineFactory: DownloadEngine.Factory
     @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var api: RealDebridApi
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeDownloads = ConcurrentHashMap<String, ActiveDownload>()
@@ -116,8 +118,15 @@ class DownloadService : Service() {
                 }
 
                 // Execute download
-                val result = engine.download(entity.downloadUrl, outputFile)
-                handleResult(downloadId, entity.filename, outputFile, result)
+                try {
+                    val result = engine.download(entity.downloadUrl, outputFile)
+                    handleResult(downloadId, entity.filename, outputFile, result)
+                } catch (_: CancellationException) {
+                    // Job was cancelled via cancelDownload() — that path handles DB/notification cleanup.
+                } catch (e: Exception) {
+                    handleResult(downloadId, entity.filename, outputFile,
+                        DownloadResult.Error(e, e.message ?: "Unexpected error"))
+                }
             }
 
             activeDownloads[downloadId] = ActiveDownload(engine, job, entity)
@@ -157,6 +166,17 @@ class DownloadService : Service() {
     private suspend fun handleResult(downloadId: String, filename: String, outputFile: File, result: DownloadResult) {
         activeDownloads.remove(downloadId)
 
+        // Guard: don't overwrite CANCELLED status (race between engine result and cancelDownload())
+        if (result !is DownloadResult.Cancelled) {
+            val current = downloadDao.getDownloadById(downloadId)
+            if (current?.status == DownloadStatus.CANCELLED) {
+                cancelDownloadNotification(downloadId)
+                updateServiceNotification()
+                checkAndStopService()
+                return
+            }
+        }
+
         when (result) {
             is DownloadResult.Success -> {
                 downloadDao.markCompleted(downloadId, localPath = result.path)
@@ -165,6 +185,20 @@ class DownloadService : Service() {
             }
             is DownloadResult.Error -> {
                 val errorMsg = result.exception.message ?: result.reason
+                // Re-unrestrict on expired CDN URL (HTTP 403 / 410) — retry once with fresh URL
+                if (errorMsg.contains("HTTP 403") || errorMsg.contains("HTTP 410")) {
+                    val entity = downloadDao.getDownloadById(downloadId)
+                    if (entity != null) {
+                        try {
+                            val fresh = api.unrestrictLink(entity.originalUrl)
+                            downloadDao.update(entity.copy(downloadUrl = fresh.download, status = DownloadStatus.QUEUED))
+                            startDownload(downloadId)
+                            return
+                        } catch (_: Exception) {
+                            // Fall through to mark failed
+                        }
+                    }
+                }
                 downloadDao.markFailed(downloadId, errorMessage = errorMsg)
                 showFailedNotification(downloadId, filename, errorMsg)
             }

@@ -19,6 +19,7 @@ data class DownloadEntity(
     val localPath: String? = null,     // Final file path when completed
     val errorMessage: String? = null,
     val retryCount: Int = 0,
+    val rdDownloadId: String? = null,   // RD download ID for re-unrestricting expired CDN URLs
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val completedAt: Long? = null
