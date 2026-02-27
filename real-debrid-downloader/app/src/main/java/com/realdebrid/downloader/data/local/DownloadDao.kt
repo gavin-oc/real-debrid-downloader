@@ -42,7 +42,7 @@ interface DownloadDao {
             progress = :progress,
             bytesDownloaded = :bytesDownloaded,
             updatedAt = :updatedAt
-        WHERE id = :id
+        WHERE id = :id AND status = 'DOWNLOADING'
     """)
     suspend fun updateProgress(
         id: String,

@@ -83,6 +83,28 @@ class DownloadService : Service() {
                 }
             }
             ACTION_CANCEL_ALL -> cancelAllDownloads()
+            ACTION_DELETE -> {
+                val downloadId = intent.getStringExtra(EXTRA_DOWNLOAD_ID) ?: return START_STICKY
+                serviceScope.launch {
+                    val entity = downloadDao.getDownloadById(downloadId) ?: return@launch
+                    when (entity.status) {
+                        DownloadStatus.DOWNLOADING -> {
+                            activeDownloads[downloadId]?.let { active ->
+                                active.engine.cancel()
+                                active.job.cancel()
+                                activeDownloads.remove(downloadId)
+                                cancelDownloadNotification(downloadId)
+                                updateServiceNotification()
+                            }
+                            getOutputFile(entity.filename).delete()
+                        }
+                        DownloadStatus.PAUSED, DownloadStatus.CANCELLED ->
+                            getOutputFile(entity.filename).delete()
+                        else -> {}
+                    }
+                    downloadDao.deleteDownloadById(downloadId)
+                }
+            }
         }
 
         return START_STICKY
@@ -146,9 +168,11 @@ class DownloadService : Service() {
             bytesDownloaded = progress.bytesDownloaded
         )
 
-        // Update notification
-        val text = "${progress.formatSize()} - ${progress.formatSpeed()}"
-        updateDownloadNotification(downloadId, filename, progress.percent, text)
+        // Don't overwrite the "Paused" notification with progress text
+        if (activeDownloads[downloadId]?.engine?.isPaused() != true) {
+            val text = "${progress.formatSize()} - ${progress.formatSpeed()}"
+            updateDownloadNotification(downloadId, filename, progress.percent, text)
+        }
     }
 
     private fun handleEvent(downloadId: String, filename: String, event: EngineEvent) {
@@ -241,7 +265,10 @@ class DownloadService : Service() {
 
             serviceScope.launch {
                 val entity = downloadDao.getDownloadById(downloadId)
-                entity?.localPath?.let { File(it).delete() }
+                if (entity != null) {
+                    // localPath is only set on COMPLETED; partial file lives at getOutputFile()
+                    getOutputFile(entity.filename).delete()
+                }
                 downloadDao.updateStatus(downloadId, DownloadStatus.CANCELLED)
             }
 
@@ -421,6 +448,7 @@ class DownloadService : Service() {
         const val ACTION_RESUME = "com.realdebrid.downloader.RESUME"
         const val ACTION_CANCEL = "com.realdebrid.downloader.CANCEL"
         const val ACTION_CANCEL_ALL = "com.realdebrid.downloader.CANCEL_ALL"
+        const val ACTION_DELETE = "com.realdebrid.downloader.DELETE"
         const val EXTRA_DOWNLOAD_ID = "download_id"
 
         private const val NOTIFICATION_ID_SERVICE = 1
@@ -456,6 +484,14 @@ class DownloadService : Service() {
                 putExtra(EXTRA_DOWNLOAD_ID, downloadId)
             }
             context.startService(intent)
+        }
+
+        fun deleteDownload(context: Context, downloadId: String) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_DELETE
+                putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+            }
+            context.startForegroundService(intent)
         }
     }
 }
