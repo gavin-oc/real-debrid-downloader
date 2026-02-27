@@ -22,6 +22,8 @@ class FileDownloader @Inject constructor(
         onComplete: () -> Unit,
         onError: (Exception) -> Unit
     ) {
+        var response: okhttp3.Response? = null
+        var raf: RandomAccessFile? = null
         try {
             val existingBytes = if (outputFile.exists()) outputFile.length() else 0L
             downloadedBytes.set(existingBytes)
@@ -35,8 +37,8 @@ class FileDownloader @Inject constructor(
                 }
                 .build()
 
-            val response = client.newCall(request).execute()
-            
+            response = client.newCall(request).execute()
+
             if (!response.isSuccessful && response.code != 206) {
                 onError(Exception("HTTP ${response.code}: ${response.message}"))
                 return
@@ -56,7 +58,7 @@ class FileDownloader @Inject constructor(
                 return
             }
 
-            val raf = RandomAccessFile(outputFile, "rw")
+            raf = RandomAccessFile(outputFile, "rw")
             raf.seek(existingBytes)
 
             body.byteStream().use { input ->
@@ -67,7 +69,6 @@ class FileDownloader @Inject constructor(
 
                 while (input.read(buffer).also { bytesRead = it } != -1) {
                     if (isCancelled.get()) {
-                        raf.close()
                         return
                     }
 
@@ -76,7 +77,6 @@ class FileDownloader @Inject constructor(
                     }
 
                     if (isCancelled.get()) {
-                        raf.close()
                         return
                     }
 
@@ -94,8 +94,6 @@ class FileDownloader @Inject constructor(
                     }
                 }
 
-                raf.close()
-
                 if (!isCancelled.get()) {
                     onProgress(downloadedBytes.get(), totalBytes, 0)
                     onComplete()
@@ -105,6 +103,9 @@ class FileDownloader @Inject constructor(
             if (!isCancelled.get()) {
                 onError(e)
             }
+        } finally {
+            raf?.close()
+            response?.close()
         }
     }
 

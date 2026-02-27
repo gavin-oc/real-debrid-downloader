@@ -3,6 +3,8 @@ package com.realdebrid.downloader.ui.screens.settings
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -125,6 +127,25 @@ fun SettingsScreen(
 
                 // Download Settings
                 SettingsSection(title = "Downloads") {
+                    val directoryPicker = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.OpenDocumentTree(),
+                        onResult = { uri ->
+                            if (uri != null) {
+                                context.contentResolver.takePersistableUriPermission(
+                                    uri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                )
+                                viewModel.saveDownloadPath(uri.toString())
+                            }
+                        }
+                    )
+
+                    SettingsItem(
+                        title = "Download Path",
+                        subtitle = settings.downloadPath.ifEmpty { "Default" },
+                        onClick = { directoryPicker.launch(null) }
+                    )
+
                     SettingsSlider(
                         title = "Max Concurrent Downloads",
                         value = settings.maxConcurrentDownloads,

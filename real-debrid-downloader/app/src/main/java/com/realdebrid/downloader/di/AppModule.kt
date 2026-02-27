@@ -115,9 +115,14 @@ object AppModule {
     @Named("downloader")
     fun provideDownloaderOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.MINUTES)
             .writeTimeout(5, TimeUnit.MINUTES)
+            .addInterceptor(HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.HEADERS
+            })
             .build()
     }
 

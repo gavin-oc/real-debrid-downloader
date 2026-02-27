@@ -6,6 +6,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Environment
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.realdebrid.downloader.R
@@ -13,6 +16,7 @@ import com.realdebrid.downloader.RealDebridApp
 import com.realdebrid.downloader.data.local.DownloadDao
 import com.realdebrid.downloader.data.local.DownloadEntity
 import com.realdebrid.downloader.data.local.DownloadStatus
+import com.realdebrid.downloader.data.repository.SettingsRepository
 import com.realdebrid.downloader.download.DownloadEngine
 import com.realdebrid.downloader.download.DownloadResult
 import com.realdebrid.downloader.download.EngineEvent
@@ -21,6 +25,7 @@ import com.realdebrid.downloader.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -30,6 +35,7 @@ class DownloadService : Service() {
 
     @Inject lateinit var downloadDao: DownloadDao
     @Inject lateinit var engineFactory: DownloadEngine.Factory
+    @Inject lateinit var settingsRepository: SettingsRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeDownloads = ConcurrentHashMap<String, ActiveDownload>()
@@ -83,38 +89,43 @@ class DownloadService : Service() {
     private suspend fun startDownload(downloadId: String) {
         if (activeDownloads.containsKey(downloadId)) return
 
-        val entity = downloadDao.getDownloadById(downloadId) ?: return
-        val engine = engineFactory.create()
-        val outputFile = getOutputFile(entity.filename)
+        try {
+            val entity = downloadDao.getDownloadById(downloadId) ?: return
+            val engine = engineFactory.create()
+            val outputFile = getOutputFile(entity.filename)
 
-        // Update status to downloading
-        downloadDao.updateStatus(downloadId, DownloadStatus.DOWNLOADING)
+            // Update status to downloading
+            downloadDao.updateStatus(downloadId, DownloadStatus.DOWNLOADING)
 
-        // Create notification for this download
-        updateDownloadNotification(downloadId, entity.filename, 0, "Starting...")
+            // Create notification for this download
+            updateDownloadNotification(downloadId, entity.filename, 0, "Starting...")
 
-        val job = serviceScope.launch {
-            // Collect progress updates
-            launch {
-                engine.progress.collectLatest { progress ->
-                    handleProgress(downloadId, entity.filename, progress)
+            val job = serviceScope.launch {
+                // Collect progress updates
+                launch {
+                    engine.progress.collectLatest { progress ->
+                        handleProgress(downloadId, entity.filename, progress)
+                    }
                 }
+
+                // Collect events
+                launch {
+                    engine.events.collectLatest { event ->
+                        handleEvent(downloadId, entity.filename, event)
+                    }
+                }
+
+                // Execute download
+                val result = engine.download(entity.downloadUrl, outputFile)
+                handleResult(downloadId, entity.filename, outputFile, result)
             }
 
-            // Collect events
-            launch {
-                engine.events.collectLatest { event ->
-                    handleEvent(downloadId, entity.filename, event)
-                }
-            }
-
-            // Execute download
-            val result = engine.download(entity.downloadUrl, outputFile)
-            handleResult(downloadId, entity.filename, outputFile, result)
+            activeDownloads[downloadId] = ActiveDownload(engine, job, entity)
+            updateServiceNotification()
+        } catch (e: Exception) {
+            showFailedNotification(downloadId, "Unknown Download", e.message ?: "An unexpected error occurred")
+            downloadDao.markFailed(downloadId, errorMessage = e.message ?: "An unexpected error occurred")
         }
-
-        activeDownloads[downloadId] = ActiveDownload(engine, job, entity)
-        updateServiceNotification()
     }
 
     private suspend fun handleProgress(downloadId: String, filename: String, progress: EngineProgress) {
@@ -137,7 +148,7 @@ class DownloadService : Service() {
                 updateDownloadNotification(downloadId, filename, -1, "Stall detected, retrying...")
             }
             is EngineEvent.Retrying -> {
-                updateDownloadNotification(downloadId, filename, -1, "Retry ${event.attempt}/${event.maxAttempts}")
+                updateDownloadNotification(downloadId, filename, -1, "Retry ${event.attempt}/${event.maxAttempts}: ${event.reason}")
             }
             else -> {}
         }
@@ -149,11 +160,13 @@ class DownloadService : Service() {
         when (result) {
             is DownloadResult.Success -> {
                 downloadDao.markCompleted(downloadId, localPath = result.path)
+                MediaScannerConnection.scanFile(applicationContext, arrayOf(outputFile.path), null, null)
                 showCompletedNotification(downloadId, filename)
             }
             is DownloadResult.Error -> {
-                downloadDao.markFailed(downloadId, errorMessage = result.reason)
-                showFailedNotification(downloadId, filename, result.reason)
+                val errorMsg = result.exception.message ?: result.reason
+                downloadDao.markFailed(downloadId, errorMessage = errorMsg)
+                showFailedNotification(downloadId, filename, errorMsg)
             }
             is DownloadResult.Cancelled -> {
                 downloadDao.updateStatus(downloadId, DownloadStatus.CANCELLED)
@@ -228,10 +241,39 @@ class DownloadService : Service() {
         }
     }
 
-    private fun getOutputFile(filename: String): File {
-        val dir = File(getExternalFilesDir(null), "downloads")
+    private suspend fun getOutputFile(filename: String): File {
+        val path = settingsRepository.downloadPath.first()
+        val dir = if (path.isEmpty()) {
+            File(getExternalFilesDir(null), "downloads")
+        } else {
+            resolveDirectory(path)
+        }
         if (!dir.exists()) dir.mkdirs()
         return File(dir, sanitizeFilename(filename))
+    }
+
+    /**
+     * Converts a SAF content URI tree to a real filesystem path.
+     * SAF URIs like "content://com.android.externalstorage.documents/tree/primary%3ADownload%2FDebrid"
+     * cannot be used with RandomAccessFile — they must be resolved to "/storage/emulated/0/Download/Debrid".
+     */
+    private fun resolveDirectory(path: String): File {
+        if (!path.startsWith("content://")) return File(path)
+
+        val uri = Uri.parse(path)
+        val docId = uri.lastPathSegment ?: return File(path)
+        val split = docId.split(":")
+        if (split.size < 2) return File(path)
+
+        val volume = split[0]
+        val relativePath = split[1]
+
+        return if (volume.equals("primary", ignoreCase = true)) {
+            File(Environment.getExternalStorageDirectory(), relativePath)
+        } else {
+            // Secondary storage (SD card, USB)
+            File("/storage/$volume/$relativePath")
+        }
     }
 
     private fun sanitizeFilename(filename: String): String {
@@ -326,7 +368,7 @@ class DownloadService : Service() {
     }
 
     private fun getNotificationId(downloadId: String): Int {
-        return NOTIFICATION_ID_DOWNLOAD_BASE + downloadId.hashCode().and(0x7FFFFFFF) % 10000
+        return NOTIFICATION_ID_DOWNLOAD_BASE + downloadId.hashCode()
     }
 
     override fun onDestroy() {
