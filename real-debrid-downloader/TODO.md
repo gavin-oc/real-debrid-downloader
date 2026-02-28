@@ -34,7 +34,8 @@ Solution: Full custom implementation with real-time tracking.
 - [x] **Combine Home tab and Cache tab into a single screen**
   - Both tabs show essentially the same content (RD downloads/torrents)
   - Merge into one unified screen with filters/sections instead of two separate tabs
-  - Simplifies navigation and reduces redundancy; recentDownloads shown in "Recent Downloads" section below Torrents
+  - Simplifies navigation and reduces redundancy
+- [x] **Remove Recent Downloads section from Home tab** — UI-only removal; ViewModel data loading kept
 
 - [x] **Torrent file picker — browse and select individual files from a torrent**
   - When adding a torrent with multiple files, show a file list and let the user choose which to download
@@ -61,6 +62,13 @@ Solution: Full custom implementation with real-time tracking.
   - Clearing a download should: cancel active engine, remove from `activeDownloads`, delete partial file, remove DB entry, dismiss notification
   - Pause should correctly persist state so resume works (currently pause only works while engine is in memory; service restart = full re-download)
   - Bulk clear (clear all completed, clear all failed, etc.)
+
+- [x] **Search, sort, and filter for torrents list**
+  - Search bar filters by filename in real time
+  - Sort dropdown: Date Added / Name / Size / Status, ascending/descending toggle
+  - Filter chips: All / Downloading / Downloaded / Error
+  - State lives in ViewModel; refresh preserves current search/sort/filter state
+  - Affected files: HomeViewModel.kt (enums, `computeFilteredTorrents`, action methods), HomeScreen.kt (`CombinedRdTab` expanded with search/sort/filter controls)
 
 ### Medium
 

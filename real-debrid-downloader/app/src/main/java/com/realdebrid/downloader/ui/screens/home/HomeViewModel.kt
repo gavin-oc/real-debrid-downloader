@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.realdebrid.downloader.data.model.Download
 import com.realdebrid.downloader.data.model.TorrentFile
 import com.realdebrid.downloader.data.model.TorrentInfo
+import com.realdebrid.downloader.data.model.TorrentStatus
 import com.realdebrid.downloader.data.model.User
 import com.realdebrid.downloader.data.repository.DownloadRepository
 import com.realdebrid.downloader.service.DownloadService
@@ -19,6 +20,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+enum class SortBy { DATE_ADDED, NAME, SIZE, STATUS }
+enum class StatusFilter { ALL, DOWNLOADING, DOWNLOADED, ERROR }
 
 data class TorrentFilesState(
     val torrentId: String,
@@ -38,7 +42,12 @@ data class HomeUiState(
     val error: String? = null,
     val addLinkSuccess: Boolean = false,
     val downloadStarted: String? = null,
-    val pendingFilePicker: TorrentFilesState? = null
+    val pendingFilePicker: TorrentFilesState? = null,
+    val searchQuery: String = "",
+    val sortBy: SortBy = SortBy.DATE_ADDED,
+    val sortAscending: Boolean = false,
+    val statusFilter: StatusFilter = StatusFilter.ALL,
+    val filteredTorrents: List<TorrentInfo> = emptyList(),
 )
 
 @HiltViewModel
@@ -87,7 +96,7 @@ class HomeViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             repository.getTorrents()
                 .onSuccess { torrents ->
-                    _uiState.update { it.copy(torrents = torrents, isLoading = false) }
+                    _uiState.update { val s = it.copy(torrents = torrents, isLoading = false); s.copy(filteredTorrents = computeFilteredTorrents(s)) }
                 }
                 .onFailure { e ->
                     _uiState.update { it.copy(error = e.message, isLoading = false) }
@@ -296,7 +305,8 @@ class HomeViewModel @Inject constructor(
             repository.deleteTorrent(torrent.id)
                 .onSuccess {
                     _uiState.update { state ->
-                        state.copy(torrents = state.torrents.filter { it.id != torrent.id })
+                        val s = state.copy(torrents = state.torrents.filter { it.id != torrent.id })
+                        s.copy(filteredTorrents = computeFilteredTorrents(s))
                     }
                 }
                 .onFailure { e ->
@@ -319,12 +329,51 @@ class HomeViewModel @Inject constructor(
                 launch {
                     repository.getTorrents()
                         .onSuccess { torrents ->
-                            _uiState.update { it.copy(torrents = torrents) }
+                            _uiState.update { val s = it.copy(torrents = torrents); s.copy(filteredTorrents = computeFilteredTorrents(s)) }
                         }
                 }
             }
             _uiState.update { it.copy(isRefreshing = false) }
         }
+    }
+
+    private fun computeFilteredTorrents(state: HomeUiState): List<TorrentInfo> {
+        val q = state.searchQuery.trim().lowercase()
+        var list = state.torrents
+        if (q.isNotEmpty()) list = list.filter { it.filename.lowercase().contains(q) }
+        list = when (state.statusFilter) {
+            StatusFilter.DOWNLOADING -> list.filter { it.status == TorrentStatus.DOWNLOADING.value }
+            StatusFilter.DOWNLOADED  -> list.filter { it.status == TorrentStatus.DOWNLOADED.value }
+            StatusFilter.ERROR       -> list.filter {
+                it.status in listOf(TorrentStatus.ERROR.value, TorrentStatus.MAGNET_ERROR.value,
+                                    TorrentStatus.DEAD.value, TorrentStatus.VIRUS.value)
+            }
+            StatusFilter.ALL -> list
+        }
+        val comparator: Comparator<TorrentInfo> = when (state.sortBy) {
+            SortBy.NAME       -> compareBy { it.filename.lowercase() }
+            SortBy.SIZE       -> compareBy { it.bytes }
+            SortBy.STATUS     -> compareBy { it.status }
+            SortBy.DATE_ADDED -> compareBy { it.added }
+        }
+        return if (state.sortAscending) list.sortedWith(comparator)
+               else list.sortedWith(comparator.reversed())
+    }
+
+    fun setSearchQuery(q: String) {
+        _uiState.update { val s = it.copy(searchQuery = q); s.copy(filteredTorrents = computeFilteredTorrents(s)) }
+    }
+
+    fun setSortBy(sort: SortBy) {
+        _uiState.update { val s = it.copy(sortBy = sort); s.copy(filteredTorrents = computeFilteredTorrents(s)) }
+    }
+
+    fun toggleSortDirection() {
+        _uiState.update { val s = it.copy(sortAscending = !it.sortAscending); s.copy(filteredTorrents = computeFilteredTorrents(s)) }
+    }
+
+    fun setStatusFilter(filter: StatusFilter) {
+        _uiState.update { val s = it.copy(statusFilter = filter); s.copy(filteredTorrents = computeFilteredTorrents(s)) }
     }
 
     fun clearError() {

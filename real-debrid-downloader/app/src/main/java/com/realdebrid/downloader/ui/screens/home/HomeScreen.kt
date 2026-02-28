@@ -2,6 +2,7 @@ package com.realdebrid.downloader.ui.screens.home
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -13,7 +14,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.realdebrid.downloader.data.model.Download
 import com.realdebrid.downloader.data.model.TorrentFile
 import com.realdebrid.downloader.data.model.TorrentInfo
 import com.realdebrid.downloader.data.model.TorrentStatus
@@ -107,8 +107,16 @@ fun HomeScreen(
 
             CombinedRdTab(
                 torrents = uiState.torrents,
-                recentDownloads = uiState.recentDownloads,
+                filteredTorrents = uiState.filteredTorrents,
+                searchQuery = uiState.searchQuery,
+                sortBy = uiState.sortBy,
+                sortAscending = uiState.sortAscending,
+                statusFilter = uiState.statusFilter,
                 isLoading = uiState.isLoading,
+                onSearchQueryChange = viewModel::setSearchQuery,
+                onSortByChange = viewModel::setSortBy,
+                onToggleSortDirection = viewModel::toggleSortDirection,
+                onStatusFilterChange = viewModel::setStatusFilter,
                 onDownload = { viewModel.openTorrentFilePicker(it) },
                 onDelete = { viewModel.deleteTorrent(it) }
             )
@@ -175,15 +183,26 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CombinedRdTab(
     torrents: List<TorrentInfo>,
-    recentDownloads: List<Download>,
+    filteredTorrents: List<TorrentInfo>,
+    searchQuery: String,
+    sortBy: SortBy,
+    sortAscending: Boolean,
+    statusFilter: StatusFilter,
     isLoading: Boolean,
+    onSearchQueryChange: (String) -> Unit,
+    onSortByChange: (SortBy) -> Unit,
+    onToggleSortDirection: () -> Unit,
+    onStatusFilterChange: (StatusFilter) -> Unit,
     onDownload: (TorrentInfo) -> Unit,
     onDelete: (TorrentInfo) -> Unit
 ) {
-    if (torrents.isEmpty() && recentDownloads.isEmpty()) {
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    if (torrents.isEmpty()) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
@@ -208,48 +227,133 @@ private fun CombinedRdTab(
             )
         }
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (torrents.isNotEmpty()) {
-                item(key = "header_torrents") { SectionHeader("Torrents") }
-                items(torrents, key = { "t_${it.id}" }) { torrent ->
-                    TorrentCard(
-                        torrent = torrent,
-                        onDownload = { onDownload(torrent) },
-                        onDelete = { onDelete(torrent) },
-                        isLoading = isLoading
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChange,
+                    label = { Text("Search torrents") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+                Box {
+                    IconButton(onClick = { showSortMenu = true }) {
+                        Icon(Icons.Default.Sort, contentDescription = "Sort")
+                    }
+                    DropdownMenu(
+                        expanded = showSortMenu,
+                        onDismissRequest = { showSortMenu = false }
+                    ) {
+                        listOf(
+                            SortBy.DATE_ADDED to "Date Added",
+                            SortBy.NAME to "Name",
+                            SortBy.SIZE to "Size",
+                            SortBy.STATUS to "Status"
+                        ).forEach { (sort, label) ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (sortBy == sort) Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        else Spacer(modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(label)
+                                    }
+                                },
+                                onClick = { onSortByChange(sort); showSortMenu = false }
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(if (sortAscending) "↑ Ascending" else "↓ Descending") },
+                            onClick = { onToggleSortDirection(); showSortMenu = false }
+                        )
+                    }
+                }
+            }
+
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = statusFilter == StatusFilter.ALL,
+                        onClick = { onStatusFilterChange(StatusFilter.ALL) },
+                        label = { Text("All") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = statusFilter == StatusFilter.DOWNLOADING,
+                        onClick = { onStatusFilterChange(StatusFilter.DOWNLOADING) },
+                        label = { Text("Downloading") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = statusFilter == StatusFilter.DOWNLOADED,
+                        onClick = { onStatusFilterChange(StatusFilter.DOWNLOADED) },
+                        label = { Text("Downloaded") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = statusFilter == StatusFilter.ERROR,
+                        onClick = { onStatusFilterChange(StatusFilter.ERROR) },
+                        label = { Text("Error") }
                     )
                 }
             }
-            if (recentDownloads.isNotEmpty()) {
-                item(key = "header_recent") { SectionHeader("Recent Downloads") }
-                items(recentDownloads, key = { "d_${it.id}" }) { download ->
-                    RecentDownloadCard(download)
+
+            if (filteredTorrents.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "No results",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Try adjusting your search or filters",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item(key = "header_torrents") { SectionHeader("Torrents") }
+                    items(filteredTorrents, key = { "t_${it.id}" }) { torrent ->
+                        TorrentCard(
+                            torrent = torrent,
+                            onDownload = { onDownload(torrent) },
+                            onDelete = { onDelete(torrent) },
+                            isLoading = isLoading
+                        )
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun RecentDownloadCard(download: Download) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = download.filename,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "${formatBytes(download.filesize)} • ${download.host} • ${download.generated.take(10)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
