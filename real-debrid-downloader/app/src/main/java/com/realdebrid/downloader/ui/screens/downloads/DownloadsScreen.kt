@@ -24,6 +24,7 @@ fun DownloadsScreen(
     val downloads by viewModel.downloads.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
+    var showClearAllDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -69,6 +70,14 @@ fun DownloadsScreen(
                                         leadingIcon = { Icon(Icons.Default.Delete, null) }
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text("Clear all") },
+                                    onClick = {
+                                        showMenu = false
+                                        showClearAllDialog = true
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.DeleteSweep, null) }
+                                )
                             }
                         }
                     }
@@ -76,6 +85,23 @@ fun DownloadsScreen(
             )
         }
     ) { padding ->
+        if (showClearAllDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearAllDialog = false },
+                title = { Text("Clear all downloads?") },
+                text = { Text("This will cancel active downloads and remove all entries. Downloaded files already on disk will not be deleted.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.clearAll()
+                        showClearAllDialog = false
+                    }) { Text("Clear all") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearAllDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+
         if (downloads.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -137,6 +163,8 @@ fun DownloadCard(
     onDelete: () -> Unit,
     onRetry: () -> Unit
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     val statusColor by animateColorAsState(
         targetValue = when (download.status) {
             DownloadStatus.COMPLETED -> MaterialTheme.colorScheme.primary
@@ -236,7 +264,7 @@ fun DownloadCard(
                             IconButton(onClick = onStart) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = "Start")
                             }
-                            IconButton(onClick = onDelete) {
+                            IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete")
                             }
                         }
@@ -252,12 +280,12 @@ fun DownloadCard(
                             IconButton(onClick = onResume) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = "Resume")
                             }
-                            IconButton(onClick = onDelete) {
+                            IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete")
                             }
                         }
                         DownloadStatus.COMPLETED -> {
-                            IconButton(onClick = onDelete) {
+                            IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete")
                             }
                         }
@@ -265,7 +293,7 @@ fun DownloadCard(
                             IconButton(onClick = onRetry) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Retry")
                             }
-                            IconButton(onClick = onDelete) {
+                            IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete")
                             }
                         }
@@ -273,7 +301,7 @@ fun DownloadCard(
                             IconButton(onClick = onRetry) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Retry")
                             }
-                            IconButton(onClick = onDelete) {
+                            IconButton(onClick = { showDeleteConfirm = true }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete")
                             }
                         }
@@ -293,6 +321,22 @@ fun DownloadCard(
                 )
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Download") },
+            text = { Text("Remove \"${download.filename}\"?") },
+            confirmButton = {
+                TextButton(onClick = { onDelete(); showDeleteConfirm = false }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
