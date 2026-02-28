@@ -118,7 +118,7 @@ class HomeViewModel @Inject constructor(
                     _uiState.update { it.copy(addLinkSuccess = true) }
                     loadTorrents()
                 } else {
-                    _uiState.update { it.copy(pendingFilePicker = TorrentFilesState(torrentId, files)) }
+                    _uiState.update { it.copy(pendingFilePicker = TorrentFilesState(torrentId = torrentId, files = files)) }
                 }
             }
             .onFailure { e ->
