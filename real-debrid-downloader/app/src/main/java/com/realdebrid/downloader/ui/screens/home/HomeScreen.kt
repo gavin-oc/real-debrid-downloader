@@ -118,6 +118,7 @@ fun HomeScreen(
                 onToggleSortDirection = viewModel::toggleSortDirection,
                 onStatusFilterChange = viewModel::setStatusFilter,
                 onDownload = { viewModel.openTorrentFilePicker(it) },
+                onDirectDownload = { viewModel.directDownload(it) },
                 onDelete = { viewModel.deleteTorrent(it) }
             )
         }
@@ -198,6 +199,7 @@ private fun CombinedRdTab(
     onToggleSortDirection: () -> Unit,
     onStatusFilterChange: (StatusFilter) -> Unit,
     onDownload: (TorrentInfo) -> Unit,
+    onDirectDownload: (TorrentInfo) -> Unit,
     onDelete: (TorrentInfo) -> Unit
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
@@ -348,6 +350,7 @@ private fun CombinedRdTab(
                         TorrentCard(
                             torrent = torrent,
                             onDownload = { onDownload(torrent) },
+                            onDirectDownload = { onDirectDownload(torrent) },
                             onDelete = { onDelete(torrent) },
                             isLoading = isLoading
                         )
@@ -467,6 +470,7 @@ fun FilePickerDialog(
 fun TorrentCard(
     torrent: TorrentInfo,
     onDownload: () -> Unit,
+    onDirectDownload: () -> Unit,
     onDelete: () -> Unit,
     isLoading: Boolean
 ) {
@@ -528,7 +532,12 @@ fun TorrentCard(
                                 Icon(Icons.Default.Folder, contentDescription = "Open Folder")
                             }
                         } else {
-                            IconButton(onClick = onDownload, enabled = !isLoading) {
+                            if (isLikelyFolderTorrent(torrent.filename)) {
+                                IconButton(onClick = onDownload, enabled = !isLoading) {
+                                    Icon(Icons.Default.Folder, contentDescription = "Open Folder")
+                                }
+                            }
+                            IconButton(onClick = onDirectDownload, enabled = !isLoading) {
                                 Icon(Icons.Default.Download, contentDescription = "Download")
                             }
                         }
@@ -632,4 +641,11 @@ private fun formatSpeed(bytesPerSecond: Long): String = when {
     bytesPerSecond >= 1_048_576 -> "%.1f MB/s".format(bytesPerSecond / 1_048_576.0)
     bytesPerSecond >= 1024 -> "%.1f KB/s".format(bytesPerSecond / 1024.0)
     else -> "$bytesPerSecond B/s"
+}
+
+private fun isLikelyFolderTorrent(filename: String): Boolean {
+    val ext = filename.substringAfterLast('.', "")
+    if (ext.isEmpty() || ext.length > 4 || !ext.all { it.isLetterOrDigit() }) return true
+    if (ext.matches(Regex("(?i)S\\d+E?\\d*|E\\d+"))) return true
+    return false
 }

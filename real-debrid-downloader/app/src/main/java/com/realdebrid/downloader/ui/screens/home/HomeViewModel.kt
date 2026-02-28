@@ -300,6 +300,25 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun directDownload(torrent: TorrentInfo) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            val link = torrent.links.firstOrNull() ?: run {
+                _uiState.update { it.copy(error = "No download link available", isLoading = false) }
+                return@launch
+            }
+            repository.unrestrictLink(link)
+                .onSuccess { response ->
+                    val entity = repository.queueDownload(link, response)
+                    DownloadService.startDownload(context, entity.id)
+                    _uiState.update { it.copy(downloadStarted = torrent.filename, isLoading = false) }
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(error = "Failed to start download: ${e.message}", isLoading = false) }
+                }
+        }
+    }
+
     fun deleteTorrent(torrent: TorrentInfo) {
         viewModelScope.launch {
             repository.deleteTorrent(torrent.id)
@@ -340,7 +359,13 @@ class HomeViewModel @Inject constructor(
     private fun computeFilteredTorrents(state: HomeUiState): List<TorrentInfo> {
         val q = state.searchQuery.trim().lowercase()
         var list = state.torrents
-        if (q.isNotEmpty()) list = list.filter { it.filename.lowercase().contains(q) }
+        if (q.isNotEmpty()) {
+            val tokens = q.split(Regex("\\s+"))
+            list = list.filter { torrent ->
+                val normalized = torrent.filename.lowercase().replace(Regex("[._\\-]"), " ")
+                tokens.all { token -> normalized.contains(token) }
+            }
+        }
         list = when (state.statusFilter) {
             StatusFilter.DOWNLOADING -> list.filter { it.status == TorrentStatus.DOWNLOADING.value }
             StatusFilter.DOWNLOADED  -> list.filter { it.status == TorrentStatus.DOWNLOADED.value }
