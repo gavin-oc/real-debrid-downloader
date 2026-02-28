@@ -99,10 +99,10 @@ class DownloadService : Service() {
                                 cancelDownloadNotification(downloadId)
                                 updateServiceNotification()
                             }
-                            getOutputFile(entity.filename).delete()
+                            getOutputFile(entity.filename, entity.subFolder).delete()
                         }
                         DownloadStatus.PAUSED, DownloadStatus.CANCELLED, DownloadStatus.FAILED ->
-                            getOutputFile(entity.filename).delete()
+                            getOutputFile(entity.filename, entity.subFolder).delete()
                         else -> {}
                     }
                     downloadDao.deleteDownloadById(downloadId)
@@ -119,7 +119,7 @@ class DownloadService : Service() {
         try {
             val entity = downloadDao.getDownloadById(downloadId) ?: return
             val engine = engineFactory.create()
-            val outputFile = getOutputFile(entity.filename)
+            val outputFile = getOutputFile(entity.filename, entity.subFolder)
 
             // Update status to downloading
             downloadDao.updateStatus(downloadId, DownloadStatus.DOWNLOADING)
@@ -258,7 +258,7 @@ class DownloadService : Service() {
             // Service was restarted; partial parallel file (pre-allocated) would confuse the engine.
             // Delete it so download starts cleanly.
             val entity = downloadDao.getDownloadById(downloadId) ?: return
-            val partial = getOutputFile(entity.filename)
+            val partial = getOutputFile(entity.filename, entity.subFolder)
             if (partial.exists()) {
                 val preAllocated = partial.length() > entity.bytesDownloaded + 1_048_576L // >1MB gap
                 if (preAllocated) partial.delete()
@@ -278,7 +278,7 @@ class DownloadService : Service() {
                 val entity = downloadDao.getDownloadById(downloadId)
                 if (entity != null) {
                     // localPath is only set on COMPLETED; partial file lives at getOutputFile()
-                    getOutputFile(entity.filename).delete()
+                    getOutputFile(entity.filename, entity.subFolder).delete()
                 }
                 downloadDao.updateStatus(downloadId, DownloadStatus.CANCELLED)
             }
@@ -313,7 +313,7 @@ class DownloadService : Service() {
             active.job.cancel()
             cancelDownloadNotification(id)
             val entity = downloadDao.getDownloadById(id)
-            if (entity != null) getOutputFile(entity.filename).delete()
+            if (entity != null) getOutputFile(entity.filename, entity.subFolder).delete()
         }
         activeDownloads.clear()
 
@@ -321,7 +321,7 @@ class DownloadService : Service() {
         val nonActive = downloadDao.getByStatuses(
             listOf(DownloadStatus.PAUSED, DownloadStatus.CANCELLED, DownloadStatus.FAILED, DownloadStatus.QUEUED)
         )
-        nonActive.forEach { getOutputFile(it.filename).delete() }
+        nonActive.forEach { getOutputFile(it.filename, it.subFolder).delete() }
 
         // Remove all DB entries
         downloadDao.deleteAll()
@@ -337,12 +337,17 @@ class DownloadService : Service() {
         }
     }
 
-    private suspend fun getOutputFile(filename: String): File {
+    private suspend fun getOutputFile(filename: String, subFolder: String? = null): File {
         val path = settingsRepository.downloadPath.first()
-        val dir = if (path.isEmpty()) {
+        val resolvedDir = if (path.isEmpty()) {
             File(getExternalFilesDir(null), "downloads")
         } else {
             resolveDirectory(path)
+        }
+        val dir = if (subFolder != null) {
+            File(resolvedDir, sanitizeFilename(subFolder))
+        } else {
+            resolvedDir
         }
         if (!dir.exists()) dir.mkdirs()
         return File(dir, sanitizeFilename(filename))

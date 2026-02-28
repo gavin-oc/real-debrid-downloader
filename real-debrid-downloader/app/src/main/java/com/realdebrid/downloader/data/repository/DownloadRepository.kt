@@ -102,7 +102,8 @@ class DownloadRepository @Inject constructor(
     // Helper to create download entity from unrestrict response
     suspend fun queueDownload(
         originalUrl: String,
-        unrestrictResponse: UnrestrictResponse
+        unrestrictResponse: UnrestrictResponse,
+        subFolder: String? = null
     ): DownloadEntity {
         val entity = DownloadEntity(
             id = UUID.randomUUID().toString(),
@@ -112,7 +113,8 @@ class DownloadRepository @Inject constructor(
             mimeType = unrestrictResponse.mimeType ?: "",
             fileSize = unrestrictResponse.filesize,
             status = DownloadStatus.QUEUED,
-            rdDownloadId = unrestrictResponse.id
+            rdDownloadId = unrestrictResponse.id,
+            subFolder = subFolder
         )
         downloadDao.insert(entity)
         return entity

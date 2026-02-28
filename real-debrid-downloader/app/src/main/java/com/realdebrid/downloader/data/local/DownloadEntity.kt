@@ -20,6 +20,7 @@ data class DownloadEntity(
     val errorMessage: String? = null,
     val retryCount: Int = 0,
     val rdDownloadId: String? = null,   // RD download ID for re-unrestricting expired CDN URLs
+    val subFolder: String? = null,      // Optional subfolder within output dir (for multi-file torrents)
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val completedAt: Long? = null

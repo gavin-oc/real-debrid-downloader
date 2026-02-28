@@ -31,10 +31,10 @@ Solution: Full custom implementation with real-time tracking.
 
 ### High
 
-- [ ] **Combine Home tab and Cache tab into a single screen**
+- [x] **Combine Home tab and Cache tab into a single screen**
   - Both tabs show essentially the same content (RD downloads/torrents)
   - Merge into one unified screen with filters/sections instead of two separate tabs
-  - Simplifies navigation and reduces redundancy
+  - Simplifies navigation and reduces redundancy; recentDownloads shown in "Recent Downloads" section below Torrents
 
 - [x] **Torrent file picker — browse and select individual files from a torrent**
   - When adding a torrent with multiple files, show a file list and let the user choose which to download
@@ -44,7 +44,7 @@ Solution: Full custom implementation with real-time tracking.
 
 - [x] **Pause/Cancel status not reflected in UI** — `DownloadDao.updateProgress` WHERE clause now includes `AND status = 'DOWNLOADING'`; `handleProgress` guards notification update with `isPaused()` check (DownloadDao.kt, DownloadService.kt)
 
-- [ ] **Multi-file torrent: folder download with custom name**
+- [x] **Multi-file torrent: folder download with custom name**
   - For DOWNLOADED torrents with more than one file, show an "Open Folder" button instead of "Download"
   - Tapping "Open Folder" opens a dialog: folder name field (pre-filled with torrent filename, editable) + file picker
   - All selected files are downloaded into `<outputDir>/<folderName>/`
@@ -57,7 +57,7 @@ Solution: Full custom implementation with real-time tracking.
   - On confirm: cancel all active downloads, remove all DB entries, delete partial files, dismiss notifications
   - Affected files: DownloadsScreen.kt (UI button + dialog), DownloadsViewModel.kt (clearAll action), DownloadRepository / DownloadService (bulk cancel + cleanup)
 
-- [ ] **Properly clear/delete downloads and fix pause behavior**
+- [x] **Properly clear/delete downloads and fix pause behavior**
   - Clearing a download should: cancel active engine, remove from `activeDownloads`, delete partial file, remove DB entry, dismiss notification
   - Pause should correctly persist state so resume works (currently pause only works while engine is in memory; service restart = full re-download)
   - Bulk clear (clear all completed, clear all failed, etc.)

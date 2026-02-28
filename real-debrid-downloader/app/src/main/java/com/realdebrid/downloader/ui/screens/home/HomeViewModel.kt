@@ -22,9 +22,11 @@ import javax.inject.Inject
 
 data class TorrentFilesState(
     val torrentId: String,
+    val torrentName: String = "",
     val files: List<TorrentFile>,
     val links: List<String> = emptyList(),
-    val initialSelection: List<Int> = emptyList()
+    val initialSelection: List<Int> = emptyList(),
+    val isMultiFile: Boolean = false
 )
 
 data class HomeUiState(
@@ -135,7 +137,7 @@ class HomeViewModel @Inject constructor(
         return null
     }
 
-    fun confirmFileSelection(torrentId: String, selectedIds: List<Int>) {
+    fun confirmFileSelection(torrentId: String, selectedIds: List<Int>, folderName: String? = null) {
         val picker = _uiState.value.pendingFilePicker ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(pendingFilePicker = null) }
@@ -152,11 +154,12 @@ class HomeViewModel @Inject constructor(
                 val linksToDownload = selectedFilesInOrder.mapIndexedNotNull { i, file ->
                     if (file.id in selectedIds) picker.links.getOrNull(i) else null
                 }
+                val subFolder = if (picker.isMultiFile) folderName?.takeIf { it.isNotBlank() } else null
                 var successCount = 0
                 for (link in linksToDownload) {
                     repository.unrestrictLink(link)
                         .onSuccess { response ->
-                            val entity = repository.queueDownload(link, response)
+                            val entity = repository.queueDownload(link, response, subFolder = subFolder)
                             DownloadService.startDownload(context, entity.id)
                             successCount++
                         }
@@ -273,9 +276,11 @@ class HomeViewModel @Inject constructor(
                             isLoading = false,
                             pendingFilePicker = TorrentFilesState(
                                 torrentId = torrent.id,
+                                torrentName = torrent.filename.substringBeforeLast("."),
                                 files = files,
                                 links = info.links,
-                                initialSelection = selectedIds
+                                initialSelection = selectedIds,
+                                isMultiFile = info.links.size > 1
                             )
                         )
                     }

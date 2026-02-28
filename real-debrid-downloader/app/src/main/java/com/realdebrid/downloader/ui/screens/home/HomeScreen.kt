@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.realdebrid.downloader.data.model.Download
 import com.realdebrid.downloader.data.model.TorrentFile
 import com.realdebrid.downloader.data.model.TorrentInfo
 import com.realdebrid.downloader.data.model.TorrentStatus
@@ -106,6 +107,7 @@ fun HomeScreen(
 
             CombinedRdTab(
                 torrents = uiState.torrents,
+                recentDownloads = uiState.recentDownloads,
                 isLoading = uiState.isLoading,
                 onDownload = { viewModel.openTorrentFilePicker(it) },
                 onDelete = { viewModel.deleteTorrent(it) }
@@ -161,8 +163,10 @@ fun HomeScreen(
         FilePickerDialog(
             files = pickerState.files,
             initiallySelected = pickerState.initialSelection,
-            onConfirm = { selectedIds ->
-                viewModel.confirmFileSelection(pickerState.torrentId, selectedIds)
+            isMultiFile = pickerState.isMultiFile,
+            defaultFolderName = pickerState.torrentName,
+            onConfirm = { selectedIds, folderName ->
+                viewModel.confirmFileSelection(pickerState.torrentId, selectedIds, folderName)
             },
             onDismiss = {
                 viewModel.dismissFilePicker(pickerState.torrentId)
@@ -174,11 +178,12 @@ fun HomeScreen(
 @Composable
 private fun CombinedRdTab(
     torrents: List<TorrentInfo>,
+    recentDownloads: List<Download>,
     isLoading: Boolean,
     onDownload: (TorrentInfo) -> Unit,
     onDelete: (TorrentInfo) -> Unit
 ) {
-    if (torrents.isEmpty()) {
+    if (torrents.isEmpty() && recentDownloads.isEmpty()) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Center,
@@ -208,15 +213,43 @@ private fun CombinedRdTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item(key = "header_torrents") { SectionHeader("Torrents") }
-            items(torrents, key = { "t_${it.id}" }) { torrent ->
-                TorrentCard(
-                    torrent = torrent,
-                    onDownload = { onDownload(torrent) },
-                    onDelete = { onDelete(torrent) },
-                    isLoading = isLoading
-                )
+            if (torrents.isNotEmpty()) {
+                item(key = "header_torrents") { SectionHeader("Torrents") }
+                items(torrents, key = { "t_${it.id}" }) { torrent ->
+                    TorrentCard(
+                        torrent = torrent,
+                        onDownload = { onDownload(torrent) },
+                        onDelete = { onDelete(torrent) },
+                        isLoading = isLoading
+                    )
+                }
             }
+            if (recentDownloads.isNotEmpty()) {
+                item(key = "header_recent") { SectionHeader("Recent Downloads") }
+                items(recentDownloads, key = { "d_${it.id}" }) { download ->
+                    RecentDownloadCard(download)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentDownloadCard(download: Download) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = download.filename,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "${formatBytes(download.filesize)} • ${download.host} • ${download.generated.take(10)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -236,18 +269,32 @@ private fun SectionHeader(title: String) {
 @Composable
 fun FilePickerDialog(
     files: List<TorrentFile>,
-    onConfirm: (List<Int>) -> Unit,
+    onConfirm: (List<Int>, String?) -> Unit,
     onDismiss: () -> Unit,
-    initiallySelected: List<Int> = emptyList()
+    initiallySelected: List<Int> = emptyList(),
+    isMultiFile: Boolean = false,
+    defaultFolderName: String = ""
 ) {
     val checkedIds = remember { mutableStateListOf<Int>().also { it.addAll(initiallySelected) } }
     val allSelected = checkedIds.size == files.size
+    var folderName by remember { mutableStateOf(defaultFolderName) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Select Files") },
         text = {
             Column {
+                if (isMultiFile) {
+                    OutlinedTextField(
+                        value = folderName,
+                        onValueChange = { folderName = it },
+                        label = { Text("Folder name") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
@@ -299,7 +346,7 @@ fun FilePickerDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(checkedIds.toList()) },
+                onClick = { onConfirm(checkedIds.toList(), folderName.takeIf { isMultiFile }) },
                 enabled = checkedIds.isNotEmpty()
             ) {
                 val totalBytes = files.filter { it.id in checkedIds }.sumOf { it.bytes }
@@ -372,8 +419,14 @@ fun TorrentCard(
 
                 Row {
                     if (status == TorrentStatus.DOWNLOADED) {
-                        IconButton(onClick = onDownload, enabled = !isLoading) {
-                            Icon(Icons.Default.Download, contentDescription = "Download")
+                        if (torrent.links.size > 1) {
+                            IconButton(onClick = onDownload, enabled = !isLoading) {
+                                Icon(Icons.Default.Folder, contentDescription = "Open Folder")
+                            }
+                        } else {
+                            IconButton(onClick = onDownload, enabled = !isLoading) {
+                                Icon(Icons.Default.Download, contentDescription = "Download")
+                            }
                         }
                     }
                     IconButton(onClick = { showDeleteConfirm = true }) {
