@@ -1,6 +1,7 @@
 package com.realdebrid.downloader.data.remote
 
 import com.realdebrid.downloader.data.model.*
+import retrofit2.Response
 import retrofit2.http.*
 
 interface RealDebridApi {
@@ -37,7 +38,7 @@ interface RealDebridApi {
     ): List<Download>
 
     @DELETE("downloads/delete/{id}")
-    suspend fun deleteDownload(@Path("id") id: String)
+    suspend fun deleteDownload(@Path("id") id: String): Response<Unit>
 
     // Torrents
     @FormUrlEncoded
@@ -56,10 +57,10 @@ interface RealDebridApi {
     suspend fun selectFiles(
         @Path("id") id: String,
         @Field("files") files: String = "all"
-    )
+    ): Response<Unit>
 
     @DELETE("torrents/delete/{id}")
-    suspend fun deleteTorrent(@Path("id") id: String)
+    suspend fun deleteTorrent(@Path("id") id: String): Response<Unit>
 
     @GET("torrents")
     suspend fun getTorrents(

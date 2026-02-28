@@ -2,7 +2,6 @@ package com.realdebrid.downloader.ui.navigation
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -17,14 +16,12 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.realdebrid.downloader.ui.screens.cache.CacheScreen
 import com.realdebrid.downloader.ui.screens.downloads.DownloadsScreen
 import com.realdebrid.downloader.ui.screens.home.HomeScreen
 import com.realdebrid.downloader.ui.screens.settings.SettingsScreen
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     data object Home : Screen("home", "Home", Icons.Default.Home)
-    data object Cache : Screen("cache", "Cache", Icons.Default.Cloud)
     data object Downloads : Screen("downloads", "Downloads", Icons.Default.Download)
     data object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
@@ -32,7 +29,7 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
 @Composable
 fun AppNavigation(sharedLink: String? = null) {
     val navController = rememberNavController()
-    val items = listOf(Screen.Home, Screen.Cache, Screen.Downloads, Screen.Settings)
+    val items = listOf(Screen.Home, Screen.Downloads, Screen.Settings)
 
     Scaffold(
         bottomBar = {
@@ -66,9 +63,6 @@ fun AppNavigation(sharedLink: String? = null) {
         ) {
             composable(Screen.Home.route) {
                 HomeScreen(sharedLink = sharedLink)
-            }
-            composable(Screen.Cache.route) {
-                CacheScreen()
             }
             composable(Screen.Downloads.route) {
                 DownloadsScreen()

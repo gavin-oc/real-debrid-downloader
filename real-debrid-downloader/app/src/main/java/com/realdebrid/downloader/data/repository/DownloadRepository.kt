@@ -32,7 +32,8 @@ class DownloadRepository @Inject constructor(
     }
 
     suspend fun deleteDownload(id: String): Result<Unit> = runCatching {
-        api.deleteDownload(id)
+        val r = api.deleteDownload(id)
+        if (!r.isSuccessful) throw Exception("HTTP ${r.code()}")
     }
 
     suspend fun addMagnet(magnet: String): Result<String> = runCatching {
@@ -45,11 +46,13 @@ class DownloadRepository @Inject constructor(
     }
 
     suspend fun selectFiles(id: String, files: String = "all"): Result<Unit> = runCatching {
-        api.selectFiles(id, files)
+        val r = api.selectFiles(id, files)
+        if (!r.isSuccessful) throw Exception("HTTP ${r.code()}")
     }
 
     suspend fun deleteTorrent(id: String): Result<Unit> = runCatching {
-        api.deleteTorrent(id)
+        val r = api.deleteTorrent(id)
+        if (!r.isSuccessful) throw Exception("HTTP ${r.code()}")
     }
 
     suspend fun getTorrents(page: Int = 1, limit: Int = 50): Result<List<TorrentInfo>> = runCatching {

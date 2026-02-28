@@ -44,6 +44,19 @@ Solution: Full custom implementation with real-time tracking.
 
 - [x] **Pause/Cancel status not reflected in UI** — `DownloadDao.updateProgress` WHERE clause now includes `AND status = 'DOWNLOADING'`; `handleProgress` guards notification update with `isPaused()` check (DownloadDao.kt, DownloadService.kt)
 
+- [ ] **Multi-file torrent: folder download with custom name**
+  - For DOWNLOADED torrents with more than one file, show an "Open Folder" button instead of "Download"
+  - Tapping "Open Folder" opens a dialog: folder name field (pre-filled with torrent filename, editable) + file picker
+  - All selected files are downloaded into `<outputDir>/<folderName>/`
+  - Single-file torrents keep the existing "Download" button behavior (no subfolder)
+  - Affected files: HomeScreen.kt (TorrentCard button logic), HomeViewModel.kt (folder name param), DownloadRepository / DownloadService (prepend subfolder to output path)
+
+- [x] **Clear All in Downloads page with confirmation dialog**
+  - Add a "Clear All" button/action in the Downloads screen toolbar or menu
+  - Tapping it shows an "Are you sure?" confirmation dialog before proceeding
+  - On confirm: cancel all active downloads, remove all DB entries, delete partial files, dismiss notifications
+  - Affected files: DownloadsScreen.kt (UI button + dialog), DownloadsViewModel.kt (clearAll action), DownloadRepository / DownloadService (bulk cancel + cleanup)
+
 - [ ] **Properly clear/delete downloads and fix pause behavior**
   - Clearing a download should: cancel active engine, remove from `activeDownloads`, delete partial file, remove DB entry, dismiss notification
   - Pause should correctly persist state so resume works (currently pause only works while engine is in memory; service restart = full re-download)

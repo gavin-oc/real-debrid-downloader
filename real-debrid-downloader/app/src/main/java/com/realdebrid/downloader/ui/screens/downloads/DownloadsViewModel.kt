@@ -65,14 +65,7 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun deleteDownload(download: DownloadEntity) {
-        viewModelScope.launch {
-            // Cancel if active
-            if (download.status == DownloadStatus.DOWNLOADING) {
-                DownloadService.cancelDownload(context, download.id)
-            }
-            // Delete from database
-            repository.deleteDownloadById(download.id)
-        }
+        DownloadService.deleteDownload(context, download.id)
     }
 
     fun retryDownload(download: DownloadEntity) {
@@ -86,15 +79,19 @@ class DownloadsViewModel @Inject constructor(
     fun clearCompleted() {
         viewModelScope.launch {
             val completed = repository.getDownloadsByStatus(DownloadStatus.COMPLETED)
-            completed.forEach { repository.deleteDownloadById(it.id) }
+            completed.forEach { DownloadService.deleteDownload(context, it.id) }
         }
     }
 
     fun clearFailed() {
         viewModelScope.launch {
             val failed = repository.getDownloadsByStatus(DownloadStatus.FAILED)
-            failed.forEach { repository.deleteDownloadById(it.id) }
+            failed.forEach { DownloadService.deleteDownload(context, it.id) }
         }
+    }
+
+    fun clearAll() {
+        DownloadService.deleteAllDownloads(context)
     }
 
     fun retryAllFailed() {

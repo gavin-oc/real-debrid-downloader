@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.realdebrid.downloader.data.model.Download
 import com.realdebrid.downloader.data.model.TorrentFile
 import com.realdebrid.downloader.data.model.TorrentInfo
 import com.realdebrid.downloader.data.model.TorrentStatus
@@ -29,8 +28,6 @@ fun HomeScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedTab by remember { mutableIntStateOf(0) }
-
     LaunchedEffect(sharedLink) {
         sharedLink?.let {
             linkInput = it
@@ -107,28 +104,12 @@ fun HomeScreen(
                 }
             }
 
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Downloads") }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Torrents") }
-                )
-            }
-
-            when (selectedTab) {
-                0 -> DownloadsTab(downloads = uiState.recentDownloads)
-                1 -> TorrentsTab(
-                    torrents = uiState.torrents,
-                    isLoading = uiState.isLoading,
-                    onDownload = { viewModel.openTorrentFilePicker(it) },
-                    onDelete = { viewModel.deleteTorrent(it) }
-                )
-            }
+            CombinedRdTab(
+                torrents = uiState.torrents,
+                isLoading = uiState.isLoading,
+                onDownload = { viewModel.openTorrentFilePicker(it) },
+                onDelete = { viewModel.deleteTorrent(it) }
+            )
         }
     }
 
@@ -191,13 +172,34 @@ fun HomeScreen(
 }
 
 @Composable
-private fun DownloadsTab(downloads: List<Download>) {
-    if (downloads.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun CombinedRdTab(
+    torrents: List<TorrentInfo>,
+    isLoading: Boolean,
+    onDownload: (TorrentInfo) -> Unit,
+    onDelete: (TorrentInfo) -> Unit
+) {
+    if (torrents.isEmpty()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                Icons.Default.Cloud,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "No recent downloads",
+                text = "No torrents",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Add magnets using the + button",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         }
     } else {
@@ -206,67 +208,28 @@ private fun DownloadsTab(downloads: List<Download>) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(downloads) { download ->
-                DownloadItem(download = download)
+            item(key = "header_torrents") { SectionHeader("Torrents") }
+            items(torrents, key = { "t_${it.id}" }) { torrent ->
+                TorrentCard(
+                    torrent = torrent,
+                    onDownload = { onDownload(torrent) },
+                    onDelete = { onDelete(torrent) },
+                    isLoading = isLoading
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TorrentsTab(
-    torrents: List<TorrentInfo>,
-    isLoading: Boolean,
-    onDownload: (TorrentInfo) -> Unit,
-    onDelete: (TorrentInfo) -> Unit
-) {
-    when {
-        isLoading && torrents.isEmpty() -> {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        }
-        torrents.isEmpty() -> {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Default.Cloud,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "No torrents",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "Add magnets using the + button",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-            }
-        }
-        else -> {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(torrents, key = { it.id }) { torrent ->
-                    TorrentCard(
-                        torrent = torrent,
-                        onDownload = { onDownload(torrent) },
-                        onDelete = { onDelete(torrent) },
-                        isLoading = isLoading
-                    )
-                }
-            }
-        }
+private fun SectionHeader(title: String) {
+    Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 8.dp)
+        )
     }
 }
 
@@ -444,33 +407,6 @@ fun TorrentCard(
                 TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             }
         )
-    }
-}
-
-@Composable
-fun DownloadItem(download: Download) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = download.filename,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = formatFileSize(download.filesize),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = download.host,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
     }
 }
 

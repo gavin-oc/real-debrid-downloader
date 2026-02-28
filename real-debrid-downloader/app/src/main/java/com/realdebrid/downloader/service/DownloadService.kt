@@ -83,6 +83,9 @@ class DownloadService : Service() {
                 }
             }
             ACTION_CANCEL_ALL -> cancelAllDownloads()
+            ACTION_DELETE_ALL -> {
+                serviceScope.launch { deleteAllDownloads() }
+            }
             ACTION_DELETE -> {
                 val downloadId = intent.getStringExtra(EXTRA_DOWNLOAD_ID) ?: return START_STICKY
                 serviceScope.launch {
@@ -98,7 +101,7 @@ class DownloadService : Service() {
                             }
                             getOutputFile(entity.filename).delete()
                         }
-                        DownloadStatus.PAUSED, DownloadStatus.CANCELLED ->
+                        DownloadStatus.PAUSED, DownloadStatus.CANCELLED, DownloadStatus.FAILED ->
                             getOutputFile(entity.filename).delete()
                         else -> {}
                     }
@@ -252,7 +255,15 @@ class DownloadService : Service() {
             active.engine.resume()
             downloadDao.updateStatus(downloadId, DownloadStatus.DOWNLOADING)
         } else {
-            // Restart download
+            // Service was restarted; partial parallel file (pre-allocated) would confuse the engine.
+            // Delete it so download starts cleanly.
+            val entity = downloadDao.getDownloadById(downloadId) ?: return
+            val partial = getOutputFile(entity.filename)
+            if (partial.exists()) {
+                val preAllocated = partial.length() > entity.bytesDownloaded + 1_048_576L // >1MB gap
+                if (preAllocated) partial.delete()
+            }
+            downloadDao.updateStatus(downloadId, DownloadStatus.QUEUED)
             startDownload(downloadId)
         }
     }
@@ -290,6 +301,30 @@ class DownloadService : Service() {
             val downloading = downloadDao.getByStatus(DownloadStatus.DOWNLOADING)
             downloading.forEach { downloadDao.updateStatus(it.id, DownloadStatus.CANCELLED) }
         }
+
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private suspend fun deleteAllDownloads() {
+        // Cancel all active downloads and delete their partial files
+        activeDownloads.forEach { (id, active) ->
+            active.engine.cancel()
+            active.job.cancel()
+            cancelDownloadNotification(id)
+            val entity = downloadDao.getDownloadById(id)
+            if (entity != null) getOutputFile(entity.filename).delete()
+        }
+        activeDownloads.clear()
+
+        // Delete partial files for paused/cancelled/failed downloads
+        val nonActive = downloadDao.getByStatuses(
+            listOf(DownloadStatus.PAUSED, DownloadStatus.CANCELLED, DownloadStatus.FAILED, DownloadStatus.QUEUED)
+        )
+        nonActive.forEach { getOutputFile(it.filename).delete() }
+
+        // Remove all DB entries
+        downloadDao.deleteAll()
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -448,6 +483,7 @@ class DownloadService : Service() {
         const val ACTION_RESUME = "com.realdebrid.downloader.RESUME"
         const val ACTION_CANCEL = "com.realdebrid.downloader.CANCEL"
         const val ACTION_CANCEL_ALL = "com.realdebrid.downloader.CANCEL_ALL"
+        const val ACTION_DELETE_ALL = "com.realdebrid.downloader.DELETE_ALL"
         const val ACTION_DELETE = "com.realdebrid.downloader.DELETE"
         const val EXTRA_DOWNLOAD_ID = "download_id"
 
@@ -490,6 +526,13 @@ class DownloadService : Service() {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_DELETE
                 putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+            }
+            context.startForegroundService(intent)
+        }
+
+        fun deleteAllDownloads(context: Context) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_DELETE_ALL
             }
             context.startForegroundService(intent)
         }
