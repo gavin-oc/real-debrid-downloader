@@ -36,10 +36,13 @@ Solution: Full custom implementation with real-time tracking.
   - Merge into one unified screen with filters/sections instead of two separate tabs
   - Simplifies navigation and reduces redundancy
 
-- [ ] **Torrent file picker — browse and select individual files from a torrent**
+- [x] **Torrent file picker — browse and select individual files from a torrent**
   - When adding a torrent with multiple files, show a file list and let the user choose which to download
   - Currently calls `selectFiles(id, "all")` — should present the file list from `getTorrentInfo` and let user pick
   - Use the `files` array from TorrentInfo to build a selectable list UI
+  - Extended to DOWNLOADED torrents: tapping Download opens the picker pre-checked with already-selected files; cancel does not delete the torrent
+
+- [x] **Pause/Cancel status not reflected in UI** — `DownloadDao.updateProgress` WHERE clause now includes `AND status = 'DOWNLOADING'`; `handleProgress` guards notification update with `isPaused()` check (DownloadDao.kt, DownloadService.kt)
 
 - [ ] **Properly clear/delete downloads and fix pause behavior**
   - Clearing a download should: cancel active engine, remove from `activeDownloads`, delete partial file, remove DB entry, dismiss notification
@@ -95,6 +98,9 @@ Any OkHttp logging interceptor above `Level.NONE` will log Authorization headers
 
 ### RD unrestrict URLs are time-limited — store the original link, not just the CDN URL
 CDN URLs expire (HTTP 403/410). Retrying with the same URL loops forever. **Store `rdDownloadId` (from `UnrestrictResponse.id`) and `originalUrl` at queue time** so the service can call `unrestrictLink` again on expiry to get a fresh CDN URL.
+
+### Progress loop race condition — guard DB updates with a status WHERE clause
+`handleProgress` fires every ~200ms and unconditionally writes `DOWNLOADING` back to the DB, overwriting `PAUSED` or `CANCELLED`. Fix: add `AND status = 'DOWNLOADING'` to the SQL WHERE clause so the UPDATE is a no-op when state has already changed. Also gate notification updates on `isPaused()` to prevent "Paused" text being overwritten by stale progress events.
 
 ### Room schema changes require explicit migrations
 Adding a nullable column to an `@Entity` without a corresponding `Migration` causes a crash at startup on existing installs. **Bump `@Database(version = N)` and add a `Migration(N-1, N)` with `ALTER TABLE ... ADD COLUMN`** every time the entity schema changes. Keep `fallbackToDestructiveMigration()` only during development.
