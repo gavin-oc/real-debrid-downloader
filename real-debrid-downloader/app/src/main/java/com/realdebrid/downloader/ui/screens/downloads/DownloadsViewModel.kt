@@ -49,7 +49,7 @@ class DownloadsViewModel @Inject constructor(
     }
 
     fun startDownload(download: DownloadEntity) {
-        DownloadService.startDownload(context, download.id)
+        DownloadService.forceStartDownload(context, download.id)
     }
 
     fun pauseDownload(download: DownloadEntity) {

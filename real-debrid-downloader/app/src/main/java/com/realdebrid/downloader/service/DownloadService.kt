@@ -60,8 +60,9 @@ class DownloadService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 val downloadId = intent.getStringExtra(EXTRA_DOWNLOAD_ID)
+                val force = intent.getBooleanExtra(EXTRA_FORCE, false)
                 if (downloadId != null) {
-                    serviceScope.launch { startDownload(downloadId) }
+                    serviceScope.launch { startDownload(downloadId, force) }
                 }
             }
             ACTION_PAUSE -> {
@@ -113,11 +114,11 @@ class DownloadService : Service() {
         return START_STICKY
     }
 
-    private suspend fun startDownload(downloadId: String) {
+    private suspend fun startDownload(downloadId: String, force: Boolean = false) {
         if (activeDownloads.containsKey(downloadId)) return
 
         val maxConcurrent = settingsRepository.maxConcurrentDownloads.first()
-        if (activeDownloads.size >= maxConcurrent) {
+        if (!force && activeDownloads.size >= maxConcurrent) {
             // Already at limit — leave download in QUEUED status, it will be picked up when a slot opens
             return
         }
@@ -279,7 +280,7 @@ class DownloadService : Service() {
                 if (preAllocated) partial.delete()
             }
             downloadDao.updateStatus(downloadId, DownloadStatus.QUEUED)
-            startDownload(downloadId)
+            startDownload(downloadId, force = true)
         }
     }
 
@@ -506,6 +507,7 @@ class DownloadService : Service() {
         const val ACTION_DELETE_ALL = "com.realdebrid.downloader.DELETE_ALL"
         const val ACTION_DELETE = "com.realdebrid.downloader.DELETE"
         const val EXTRA_DOWNLOAD_ID = "download_id"
+        const val EXTRA_FORCE = "force_start"
 
         private const val NOTIFICATION_ID_SERVICE = 1
         private const val NOTIFICATION_ID_DOWNLOAD_BASE = 1000
@@ -514,6 +516,15 @@ class DownloadService : Service() {
             val intent = Intent(context, DownloadService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+            }
+            context.startForegroundService(intent)
+        }
+
+        fun forceStartDownload(context: Context, downloadId: String) {
+            val intent = Intent(context, DownloadService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_DOWNLOAD_ID, downloadId)
+                putExtra(EXTRA_FORCE, true)
             }
             context.startForegroundService(intent)
         }
