@@ -21,6 +21,18 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
+private fun toDisplayPath(path: String): String {
+    if (path.isEmpty()) return "Default"
+    if (!path.startsWith("content://")) return path
+    val docId = Uri.parse(path).lastPathSegment ?: return path
+    val parts = docId.split(":")
+    if (parts.size < 2) return path
+    val volume = parts[0]
+    val relative = parts[1]
+    return if (volume.equals("primary", ignoreCase = true)) relative
+    else "$volume: $relative"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -142,7 +154,7 @@ fun SettingsScreen(
 
                     SettingsItem(
                         title = "Download Path",
-                        subtitle = settings.downloadPath.ifEmpty { "Default" },
+                        subtitle = toDisplayPath(settings.downloadPath),
                         onClick = { directoryPicker.launch(null) }
                     )
 

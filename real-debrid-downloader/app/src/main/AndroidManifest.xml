@@ -50,17 +50,6 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <activity
-            android:name=".ui.debug.DebugDownloadActivity"
-            android:exported="true"
-            android:label="Debug Downloads"
-            android:theme="@style/Theme.RealDebridDownloader">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
