@@ -9,6 +9,7 @@ import com.realdebrid.downloader.data.model.TorrentInfo
 import com.realdebrid.downloader.data.model.TorrentStatus
 import com.realdebrid.downloader.data.model.User
 import com.realdebrid.downloader.data.repository.DownloadRepository
+import com.realdebrid.downloader.data.repository.SettingsRepository
 import com.realdebrid.downloader.service.DownloadService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -17,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -53,7 +55,8 @@ data class HomeUiState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: DownloadRepository
+    private val repository: DownloadRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -63,6 +66,12 @@ class HomeViewModel @Inject constructor(
         loadUser()
         loadDownloads()
         loadTorrents()
+    }
+
+    private suspend fun maybeStartDownload(entityId: String) {
+        if (settingsRepository.autoStartDownloads.first()) {
+            DownloadService.startDownload(context, entityId)
+        }
     }
 
     private fun loadUser() {
@@ -169,7 +178,7 @@ class HomeViewModel @Inject constructor(
                     repository.unrestrictLink(link)
                         .onSuccess { response ->
                             val entity = repository.queueDownload(link, response, subFolder = subFolder)
-                            DownloadService.startDownload(context, entity.id)
+                            maybeStartDownload(entity.id)
                             successCount++
                         }
                 }
@@ -201,7 +210,7 @@ class HomeViewModel @Inject constructor(
         repository.unrestrictLink(link)
             .onSuccess { response ->
                 val entity = repository.queueDownload(link, response)
-                DownloadService.startDownload(context, entity.id)
+                maybeStartDownload(entity.id)
                 _uiState.update { it.copy(addLinkSuccess = true) }
                 loadDownloads()
             }
@@ -217,7 +226,7 @@ class HomeViewModel @Inject constructor(
             repository.unrestrictLink(download.link)
                 .onSuccess { response ->
                     val entity = repository.queueDownload(download.link, response)
-                    DownloadService.startDownload(context, entity.id)
+                    maybeStartDownload(entity.id)
                     _uiState.update { it.copy(addLinkSuccess = true) }
                 }
                 .onFailure { e ->
@@ -249,7 +258,7 @@ class HomeViewModel @Inject constructor(
                         repository.unrestrictLink(link)
                             .onSuccess { response ->
                                 val entity = repository.queueDownload(link, response)
-                                DownloadService.startDownload(context, entity.id)
+                                maybeStartDownload(entity.id)
                                 successCount++
                             }
                     }
@@ -310,7 +319,7 @@ class HomeViewModel @Inject constructor(
             repository.unrestrictLink(link)
                 .onSuccess { response ->
                     val entity = repository.queueDownload(link, response)
-                    DownloadService.startDownload(context, entity.id)
+                    maybeStartDownload(entity.id)
                     _uiState.update { it.copy(downloadStarted = torrent.filename, isLoading = false) }
                 }
                 .onFailure { e ->

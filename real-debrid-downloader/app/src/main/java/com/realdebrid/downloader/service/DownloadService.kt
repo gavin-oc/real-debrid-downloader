@@ -116,6 +116,12 @@ class DownloadService : Service() {
     private suspend fun startDownload(downloadId: String) {
         if (activeDownloads.containsKey(downloadId)) return
 
+        val maxConcurrent = settingsRepository.maxConcurrentDownloads.first()
+        if (activeDownloads.size >= maxConcurrent) {
+            // Already at limit — leave download in QUEUED status, it will be picked up when a slot opens
+            return
+        }
+
         try {
             val entity = downloadDao.getDownloadById(downloadId) ?: return
             val engine = engineFactory.create()
@@ -190,8 +196,17 @@ class DownloadService : Service() {
         }
     }
 
+    private suspend fun startNextQueued() {
+        val maxConcurrent = settingsRepository.maxConcurrentDownloads.first()
+        if (activeDownloads.size < maxConcurrent) {
+            val queued = downloadDao.getByStatus(DownloadStatus.QUEUED).firstOrNull()
+            if (queued != null) startDownload(queued.id)
+        }
+    }
+
     private suspend fun handleResult(downloadId: String, filename: String, outputFile: File, result: DownloadResult) {
         activeDownloads.remove(downloadId)
+        startNextQueued()
 
         // Guard: don't overwrite CANCELLED status (race between engine result and cancelDownload())
         if (result !is DownloadResult.Cancelled) {
