@@ -51,7 +51,7 @@ data class TorrentInfo(
     val bytes: Long = 0,
     val host: String = "",
     val split: Int = 0,
-    val progress: Int = 0,
+    val progress: Float = 0f,
     val status: String,
     val added: String = "",
     val links: List<String> = emptyList(),

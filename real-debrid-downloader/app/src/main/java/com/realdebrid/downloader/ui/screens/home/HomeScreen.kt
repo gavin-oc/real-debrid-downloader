@@ -591,11 +591,11 @@ private fun getStatusText(status: TorrentStatus, torrent: TorrentInfo): String =
     TorrentStatus.MAGNET_CONVERSION -> "Converting magnet..."
     TorrentStatus.WAITING_FILES_SELECTION -> "Select files"
     TorrentStatus.QUEUED -> "Queued"
-    TorrentStatus.DOWNLOADING -> "${torrent.progress}%"
+    TorrentStatus.DOWNLOADING -> "${torrent.progress.toInt()}%"
     TorrentStatus.DOWNLOADED -> "Ready to download"
     TorrentStatus.ERROR -> "Error"
     TorrentStatus.VIRUS -> "Virus detected"
-    TorrentStatus.COMPRESSING -> "Compressing ${torrent.progress}%"
+    TorrentStatus.COMPRESSING -> "Compressing ${torrent.progress.toInt()}%"
     TorrentStatus.UPLOADING -> "Uploading"
     TorrentStatus.DEAD -> "Dead (no seeders)"
 }
